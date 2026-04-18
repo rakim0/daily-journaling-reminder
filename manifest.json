@@ -1,0 +1,11 @@
+{
+  "id": "daily-journaling-reminder",
+  "name": "Daily Journaling Reminder",
+  "version": "0.0.1",
+  "minAppVersion": "1.5.0",
+  "description": "Reminds you to journal at night and when you first return to Obsidian, then opens today's daily note.",
+  "author": "Rakim",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
+
