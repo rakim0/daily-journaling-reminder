@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "Obsidian plugin that reminds you to journal and opens today's note.",
   "main": "main.js",
+  "packageManager": "pnpm@9.12.3",
   "scripts": {
     "build": "tsc -noEmitOnError false",
     "dev": "tsc -w"
@@ -19,4 +20,3 @@
     "typescript": "^5.6.3"
   }
 }
-
