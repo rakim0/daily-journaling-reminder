@@ -1,359 +1,377 @@
-import {
-	App,
-	Modal,
-	Notice,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-	TFile
-} from "obsidian";
+import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile } from "obsidian";
 
 interface JournalReminderSettings {
-	journalFolder: string;
-	reminderTime: string;
-	enableSystemNotifications: boolean;
-	lastStartupReminderDate: string;
-	lastScheduledReminderDate: string;
+  journalFolder: string;
+  reminderTime: string;
+  journalPrompts: string;
+  enableSystemNotifications: boolean;
+  lastStartupReminderDate: string;
+  lastScheduledReminderDate: string;
 }
 
 const DEFAULT_SETTINGS: JournalReminderSettings = {
-	journalFolder: "Daily Journal",
-	reminderTime: "21:00",
-	enableSystemNotifications: true,
-	lastStartupReminderDate: "",
-	lastScheduledReminderDate: ""
+  journalFolder: "Daily Journal",
+  reminderTime: "21:00",
+  journalPrompts: "",
+  enableSystemNotifications: true,
+  lastStartupReminderDate: "",
+  lastScheduledReminderDate: "",
 };
 
 export default class JournalReminderPlugin extends Plugin {
-	settings: JournalReminderSettings = DEFAULT_SETTINGS;
-	private nightReminderTimeout: number | null = null;
+  settings: JournalReminderSettings = DEFAULT_SETTINGS;
+  private nightReminderTimeout: number | null = null;
 
-	async onload() {
-		await this.loadSettings();
-		void this.ensureNotificationPermission();
+  async onload() {
+    await this.loadSettings();
+    void this.ensureNotificationPermission();
 
-		this.addCommand({
-			id: "open-todays-journal",
-			name: "Open today's journal note",
-			callback: async () => {
-				await this.openOrCreateTodayJournal();
-			}
-		});
+    this.addCommand({
+      id: "open-todays-journal",
+      name: "Open today's journal note",
+      callback: async () => {
+        await this.openOrCreateTodayJournal();
+      },
+    });
 
-		this.addRibbonIcon("calendar-days", "Open today's journal note", async () => {
-			await this.openOrCreateTodayJournal();
-		});
+    this.addRibbonIcon("calendar-days", "Open today's journal note", async () => {
+      await this.openOrCreateTodayJournal();
+    });
 
-		this.addSettingTab(new JournalReminderSettingTab(this.app, this));
+    this.addSettingTab(new JournalReminderSettingTab(this.app, this));
 
-		this.registerDomEvent(window, "focus", () => {
-			void this.maybeShowStartupReminder();
-		});
+    this.registerDomEvent(window, "focus", () => {
+      void this.maybeShowStartupReminder();
+    });
 
-		this.app.workspace.onLayoutReady(() => {
-			void this.maybeShowStartupReminder();
-			this.scheduleNightReminder();
-		});
-	}
+    this.app.workspace.onLayoutReady(() => {
+      void this.maybeShowStartupReminder();
+      this.scheduleNightReminder();
+    });
+  }
 
-	onunload() {
-		this.clearNightReminder();
-	}
+  onunload() {
+    this.clearNightReminder();
+  }
 
-	async loadSettings() {
-		const loaded = await this.loadData();
-		const legacyHour =
-			loaded && typeof loaded.nightReminderHour === "number"
-				? String(loaded.nightReminderHour).padStart(2, "0")
-				: null;
+  async loadSettings() {
+    const loaded = await this.loadData();
+    const legacyHour =
+      loaded && typeof loaded.nightReminderHour === "number"
+        ? String(loaded.nightReminderHour).padStart(2, "0")
+        : null;
 
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded, {
-			reminderTime:
-				typeof loaded?.reminderTime === "string" && this.isValidTimeString(loaded.reminderTime)
-					? loaded.reminderTime
-					: legacyHour
-						? `${legacyHour}:00`
-						: DEFAULT_SETTINGS.reminderTime,
-			lastScheduledReminderDate:
-				typeof loaded?.lastScheduledReminderDate === "string"
-					? loaded.lastScheduledReminderDate
-					: typeof loaded?.lastNightReminderDate === "string"
-						? loaded.lastNightReminderDate
-						: DEFAULT_SETTINGS.lastScheduledReminderDate
-		});
-	}
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded, {
+      reminderTime:
+        typeof loaded?.reminderTime === "string" && this.isValidTimeString(loaded.reminderTime)
+          ? loaded.reminderTime
+          : legacyHour
+            ? `${legacyHour}:00`
+            : DEFAULT_SETTINGS.reminderTime,
+      lastScheduledReminderDate:
+        typeof loaded?.lastScheduledReminderDate === "string"
+          ? loaded.lastScheduledReminderDate
+          : typeof loaded?.lastNightReminderDate === "string"
+            ? loaded.lastNightReminderDate
+            : DEFAULT_SETTINGS.lastScheduledReminderDate,
+    });
+  }
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-		this.scheduleNightReminder();
-	}
+  async saveSettings() {
+    await this.saveData(this.settings);
+    this.scheduleNightReminder();
+  }
 
-	private clearNightReminder() {
-		if (this.nightReminderTimeout !== null) {
-			window.clearTimeout(this.nightReminderTimeout);
-			this.nightReminderTimeout = null;
-		}
-	}
+  private clearNightReminder() {
+    if (this.nightReminderTimeout !== null) {
+      window.clearTimeout(this.nightReminderTimeout);
+      this.nightReminderTimeout = null;
+    }
+  }
 
-	private scheduleNightReminder() {
-		this.clearNightReminder();
+  private scheduleNightReminder() {
+    this.clearNightReminder();
 
-		const now = new Date();
-		const nextReminder = new Date(now);
-		const [hours, minutes] = this.parseReminderTime();
-		nextReminder.setHours(hours, minutes, 0, 0);
+    const now = new Date();
+    const nextReminder = new Date(now);
+    const [hours, minutes] = this.parseReminderTime();
+    nextReminder.setHours(hours, minutes, 0, 0);
 
-		if (nextReminder.getTime() <= now.getTime()) {
-			nextReminder.setDate(nextReminder.getDate() + 1);
-		}
+    if (nextReminder.getTime() <= now.getTime()) {
+      nextReminder.setDate(nextReminder.getDate() + 1);
+    }
 
-		const delay = nextReminder.getTime() - now.getTime();
-		this.nightReminderTimeout = window.setTimeout(() => {
-			void this.maybeShowScheduledReminder();
-			this.scheduleNightReminder();
-		}, delay);
-	}
+    const delay = nextReminder.getTime() - now.getTime();
+    this.nightReminderTimeout = window.setTimeout(() => {
+      void this.maybeShowScheduledReminder();
+      this.scheduleNightReminder();
+    }, delay);
+  }
 
-	private async maybeShowStartupReminder() {
-		const today = this.getTodayNoteName();
-		if (this.settings.lastStartupReminderDate === today) {
-			return;
-		}
+  private async maybeShowStartupReminder() {
+    const today = this.getTodayNoteName();
+    if (this.settings.lastStartupReminderDate === today) {
+      return;
+    }
 
-		if (await this.hasJournalForToday()) {
-			this.settings.lastStartupReminderDate = today;
-			await this.saveData(this.settings);
-			return;
-		}
+    if (await this.hasJournalForToday()) {
+      this.settings.lastStartupReminderDate = today;
+      await this.saveData(this.settings);
+      return;
+    }
 
-		this.settings.lastStartupReminderDate = today;
-		await this.saveData(this.settings);
-		await this.showReminder("Time to journal", "Open today's journal note now?");
-	}
+    this.settings.lastStartupReminderDate = today;
+    await this.saveData(this.settings);
+    await this.showReminder("Time to journal", "Open today's journal note now?");
+  }
 
-	private async maybeShowScheduledReminder() {
-		const today = this.getTodayNoteName();
-		if (this.settings.lastScheduledReminderDate === today) {
-			return;
-		}
+  private async maybeShowScheduledReminder() {
+    const today = this.getTodayNoteName();
+    if (this.settings.lastScheduledReminderDate === today) {
+      return;
+    }
 
-		if (await this.hasJournalForToday()) {
-			this.settings.lastScheduledReminderDate = today;
-			await this.saveData(this.settings);
-			return;
-		}
+    if (await this.hasJournalForToday()) {
+      this.settings.lastScheduledReminderDate = today;
+      await this.saveData(this.settings);
+      return;
+    }
 
-		this.settings.lastScheduledReminderDate = today;
-		await this.saveData(this.settings);
-		await this.showReminder("Journal reminder", "Take a moment to write in today's journal.");
-	}
+    this.settings.lastScheduledReminderDate = today;
+    await this.saveData(this.settings);
+    await this.showReminder("Journal reminder", "Take a moment to write in today's journal.");
+  }
 
-	async openOrCreateTodayJournal() {
-		const notePath = this.getTodayNotePath();
-		let file = this.app.vault.getAbstractFileByPath(notePath);
+  async openOrCreateTodayJournal() {
+    const notePath = this.getTodayNotePath();
+    let file = this.app.vault.getAbstractFileByPath(notePath);
 
-		if (!file) {
-			await this.ensureFolderExists(this.settings.journalFolder);
-			file = await this.app.vault.create(notePath, "#daily-journal\n");
-			new Notice("Created today's journal note.");
-		}
+    if (!file) {
+      await this.ensureFolderExists(this.settings.journalFolder);
+      file = await this.app.vault.create(notePath, this.getInitialJournalContent());
+      new Notice("Created today's journal note.");
+    }
 
-		if (file instanceof TFile) {
-			await this.app.workspace.getLeaf(true).openFile(file);
-		}
-	}
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf(true).openFile(file);
+    }
+  }
 
-	private async hasJournalForToday(): Promise<boolean> {
-		const notePath = this.getTodayNotePath();
-		return this.app.vault.getAbstractFileByPath(notePath) instanceof TFile;
-	}
+  private async hasJournalForToday(): Promise<boolean> {
+    const notePath = this.getTodayNotePath();
+    return this.app.vault.getAbstractFileByPath(notePath) instanceof TFile;
+  }
 
-	private getTodayNotePath(): string {
-		const folder = this.settings.journalFolder.trim().replace(/^\/+|\/+$/g, "");
-		const noteName = this.getTodayNoteName();
-		return folder.length > 0 ? `${folder}/${noteName}.md` : `${noteName}.md`;
-	}
+  private getTodayNotePath(): string {
+    const folder = this.settings.journalFolder.trim().replace(/^\/+|\/+$/g, "");
+    const noteName = this.getTodayNoteName();
+    return folder.length > 0 ? `${folder}/${noteName}.md` : `${noteName}.md`;
+  }
 
-	private getTodayNoteName(): string {
-		const now = new Date();
-		const day = String(now.getDate()).padStart(2, "0");
-		const month = String(now.getMonth() + 1).padStart(2, "0");
-		const year = String(now.getFullYear());
-		return `${day}-${month}-${year}`;
-	}
+  private getTodayNoteName(): string {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, "0");
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const year = String(now.getFullYear());
+    return `${day}-${month}-${year}`;
+  }
 
-	private async ensureFolderExists(folderPath: string) {
-		const cleanPath = folderPath.trim().replace(/^\/+|\/+$/g, "");
-		if (!cleanPath) {
-			return;
-		}
+  private getInitialJournalContent(): string {
+    const prompts = this.settings.journalPrompts.trim();
+    if (!prompts) {
+      return "#daily-journal\n";
+    }
 
-		const parts = cleanPath.split("/");
-		let currentPath = "";
+    return prompts.endsWith("\n") ? prompts : `${prompts}\n`;
+  }
 
-		for (const part of parts) {
-			currentPath = currentPath ? `${currentPath}/${part}` : part;
-			if (!this.app.vault.getAbstractFileByPath(currentPath)) {
-				await this.app.vault.createFolder(currentPath);
-			}
-		}
-	}
+  private async ensureFolderExists(folderPath: string) {
+    const cleanPath = folderPath.trim().replace(/^\/+|\/+$/g, "");
+    if (!cleanPath) {
+      return;
+    }
 
-	isValidTimeString(value: string): boolean {
-		return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
-	}
+    const parts = cleanPath.split("/");
+    let currentPath = "";
 
-	private parseReminderTime(): [number, number] {
-		if (!this.isValidTimeString(this.settings.reminderTime)) {
-			return [21, 0];
-		}
+    for (const part of parts) {
+      currentPath = currentPath ? `${currentPath}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(currentPath)) {
+        await this.app.vault.createFolder(currentPath);
+      }
+    }
+  }
 
-		const [hours, minutes] = this.settings.reminderTime.split(":").map(Number);
-		return [hours, minutes];
-	}
+  isValidTimeString(value: string): boolean {
+    return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+  }
 
-	private async showReminder(title: string, message: string) {
-		const notificationShown = await this.showSystemNotification(title, message);
+  private parseReminderTime(): [number, number] {
+    if (!this.isValidTimeString(this.settings.reminderTime)) {
+      return [21, 0];
+    }
 
-		if (!notificationShown) {
-			new JournalReminderModal(this.app, this, title, message).open();
-		}
-	}
+    const [hours, minutes] = this.settings.reminderTime.split(":").map(Number);
+    return [hours, minutes];
+  }
 
-	private async showSystemNotification(title: string, message: string): Promise<boolean> {
-		if (!this.settings.enableSystemNotifications || typeof Notification === "undefined") {
-			return false;
-		}
+  private async showReminder(title: string, message: string) {
+    const notificationShown = await this.showSystemNotification(title, message);
 
-		const permission = await this.ensureNotificationPermission();
-		if (permission !== "granted") {
-			return false;
-		}
+    if (!notificationShown) {
+      new JournalReminderModal(this.app, this, title, message).open();
+    }
+  }
 
-		const notification = new Notification(title, {
-			body: message,
-			silent: false
-		});
+  private async showSystemNotification(title: string, message: string): Promise<boolean> {
+    if (!this.settings.enableSystemNotifications || typeof Notification === "undefined") {
+      return false;
+    }
 
-		notification.onclick = () => {
-			window.focus();
-			void this.openOrCreateTodayJournal();
-			notification.close();
-		};
+    const permission = await this.ensureNotificationPermission();
+    if (permission !== "granted") {
+      return false;
+    }
 
-		return true;
-	}
+    const notification = new Notification(title, {
+      body: message,
+      silent: false,
+    });
 
-	async ensureNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
-		if (typeof Notification === "undefined") {
-			return "unsupported";
-		}
+    notification.onclick = () => {
+      window.focus();
+      void this.openOrCreateTodayJournal();
+      notification.close();
+    };
 
-		if (Notification.permission === "default") {
-			return Notification.requestPermission();
-		}
+    return true;
+  }
 
-		return Notification.permission;
-	}
+  async ensureNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+    if (typeof Notification === "undefined") {
+      return "unsupported";
+    }
+
+    if (Notification.permission === "default") {
+      return Notification.requestPermission();
+    }
+
+    return Notification.permission;
+  }
 }
 
 class JournalReminderModal extends Modal {
-	constructor(
-		app: App,
-		private readonly plugin: JournalReminderPlugin,
-		private readonly titleText: string,
-		private readonly message: string
-	) {
-		super(app);
-	}
+  constructor(
+    app: App,
+    private readonly plugin: JournalReminderPlugin,
+    private readonly titleText: string,
+    private readonly message: string
+  ) {
+    super(app);
+  }
 
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.empty();
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
 
-		contentEl.createEl("h2", { text: this.titleText });
-		contentEl.createEl("p", { text: this.message });
+    contentEl.createEl("h2", { text: this.titleText });
+    contentEl.createEl("p", { text: this.message });
 
-		const buttonRow = contentEl.createDiv({ cls: "journal-reminder-actions" });
+    const buttonRow = contentEl.createDiv({ cls: "journal-reminder-actions" });
 
-		const openButton = buttonRow.createEl("button", {
-			text: "Open today's journal"
-		});
-		openButton.addEventListener("click", () => {
-			void this.plugin.openOrCreateTodayJournal();
-			this.close();
-		});
+    const openButton = buttonRow.createEl("button", {
+      text: "Open today's journal",
+    });
+    openButton.addEventListener("click", () => {
+      void this.plugin.openOrCreateTodayJournal();
+      this.close();
+    });
 
-		const laterButton = buttonRow.createEl("button", {
-			text: "Later"
-		});
-		laterButton.addEventListener("click", () => {
-			this.close();
-		});
-	}
+    const laterButton = buttonRow.createEl("button", {
+      text: "Later",
+    });
+    laterButton.addEventListener("click", () => {
+      this.close();
+    });
+  }
 
-	onClose() {
-		this.contentEl.empty();
-	}
+  onClose() {
+    this.contentEl.empty();
+  }
 }
 
 class JournalReminderSettingTab extends PluginSettingTab {
-	constructor(app: App, private readonly plugin: JournalReminderPlugin) {
-		super(app, plugin);
-	}
+  constructor(
+    app: App,
+    private readonly plugin: JournalReminderPlugin
+  ) {
+    super(app, plugin);
+  }
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Daily Journaling Reminder" });
+    containerEl.createEl("h2", { text: "Daily Journaling Reminder" });
 
-		new Setting(containerEl)
-			.setName("Journal folder")
-			.setDesc("Where daily journal notes should be created.")
-			.addText((text) =>
-				text
-					.setPlaceholder("Daily Journal")
-					.setValue(this.plugin.settings.journalFolder)
-					.onChange(async (value) => {
-						this.plugin.settings.journalFolder = value.trim() || DEFAULT_SETTINGS.journalFolder;
-						await this.plugin.saveSettings();
-					})
-			);
+    new Setting(containerEl)
+      .setName("Journal folder")
+      .setDesc("Where daily journal notes should be created.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Daily Journal")
+          .setValue(this.plugin.settings.journalFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.journalFolder = value.trim() || DEFAULT_SETTINGS.journalFolder;
+            await this.plugin.saveSettings();
+          })
+      );
 
-		new Setting(containerEl)
-			.setName("Reminder time")
-			.setDesc("24-hour local time for the daily reminder, for example 07:30 or 21:15.")
-			.addText((text) =>
-				text
-					.setPlaceholder("21:00")
-					.setValue(this.plugin.settings.reminderTime)
-					.onChange(async (value) => {
-						const trimmedValue = value.trim();
-						if (!this.plugin.isValidTimeString(trimmedValue)) {
-							return;
-						}
+    new Setting(containerEl)
+      .setName("Reminder time")
+      .setDesc("24-hour local time for the daily reminder, for example 07:30 or 21:15.")
+      .addText((text) =>
+        text
+          .setPlaceholder("21:00")
+          .setValue(this.plugin.settings.reminderTime)
+          .onChange(async (value) => {
+            const trimmedValue = value.trim();
+            if (!this.plugin.isValidTimeString(trimmedValue)) {
+              return;
+            }
 
-						this.plugin.settings.reminderTime = trimmedValue;
-						this.plugin.settings.lastScheduledReminderDate = "";
-						await this.plugin.saveSettings();
-					})
-			);
+            this.plugin.settings.reminderTime = trimmedValue;
+            this.plugin.settings.lastScheduledReminderDate = "";
+            await this.plugin.saveSettings();
+          })
+      );
 
-		new Setting(containerEl)
-			.setName("System notifications")
-			.setDesc("Use desktop notifications when a journal reminder fires.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enableSystemNotifications)
-					.onChange(async (value) => {
-						this.plugin.settings.enableSystemNotifications = value;
-						await this.plugin.saveSettings();
+    const promptsSetting = new Setting(containerEl)
+      .setName("Journal prompts")
+      .setDesc("Prefill new daily notes with these prompts. Existing notes are not changed.")
+      .addTextArea((textArea) =>
+        textArea
+          .setPlaceholder("How am I feeling today?\nWhat went well?\nWhat do I want to improve?")
+          .setValue(this.plugin.settings.journalPrompts)
+          .onChange(async (value) => {
+            this.plugin.settings.journalPrompts = value;
+            await this.plugin.saveSettings();
+          })
+      );
+    promptsSetting.settingEl.classList.add("journal-prompts-setting");
 
-						if (value) {
-							await this.plugin.ensureNotificationPermission();
-						}
-					})
-			);
-	}
+    new Setting(containerEl)
+      .setName("System notifications")
+      .setDesc("Use desktop notifications when a journal reminder fires.")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.enableSystemNotifications).onChange(async (value) => {
+          this.plugin.settings.enableSystemNotifications = value;
+          await this.plugin.saveSettings();
+
+          if (value) {
+            await this.plugin.ensureNotificationPermission();
+          }
+        })
+      );
+  }
 }

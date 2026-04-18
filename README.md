@@ -11,6 +11,7 @@ Clicking the reminder opens or creates today's note in `DD-MM-YYYY` format.
 
 - Journal folder: `Daily Journal`
 - Reminder time: `21:00`
+- Journal prompts: empty
 - Note title format: `DD-MM-YYYY`
 
 ## Development
@@ -19,21 +20,10 @@ Clicking the reminder opens or creates today's note in `DD-MM-YYYY` format.
 2. Build with `pnpm build` or `npm run build`
 3. Copy the contents of `build/` into your Obsidian vault's `.obsidian/plugins/daily-journaling-reminder/`
 
-## Releases
-
-This repo includes a manual GitHub Actions release workflow.
-
-1. Push your changes to GitHub whenever you want
-2. Open the `Release Plugin` workflow in GitHub Actions
-3. Run it manually with a version like `0.1.0`
-4. The workflow builds with `pnpm`, tags the repo as `v0.1.0`, creates a GitHub release, and uploads the built plugin files from `build/`
-
-GitHub will also generate release notes from the commits since the previous release, which gives you a lightweight diff/changelog automatically.
-
 ## Behavior
 
 - The plugin checks whether today's note already exists before reminding you.
 - You can set the daily reminder to any exact `HH:MM` time, not just late evening hours.
 - Changing the configured reminder time resets that scheduled reminder state so the new time applies cleanly.
 - The reminder opens a modal with an action button instead of only showing a passive notification.
-- If the note does not exist yet, the plugin creates it with a heading that matches the date.
+- If the note does not exist yet, the plugin creates it with your configured journal prompts, or a default heading when prompts are empty.

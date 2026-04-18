@@ -1,6 +1,27 @@
 .journal-reminder-actions {
-	display: flex;
-	gap: 0.75rem;
-	justify-content: flex-end;
-	margin-top: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.setting-item.journal-prompts-setting {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.setting-item.journal-prompts-setting .setting-item-info {
+  margin-right: 0;
+  width: 100%;
+}
+
+.setting-item.journal-prompts-setting .setting-item-control {
+  width: 100%;
+}
+
+.setting-item.journal-prompts-setting textarea {
+  min-height: 9rem;
+  resize: vertical;
+  width: 100%;
 }
