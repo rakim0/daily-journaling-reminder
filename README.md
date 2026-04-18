@@ -15,8 +15,8 @@ Clicking the reminder opens or creates today's note in `DD-MM-YYYY` format.
 
 ## Development
 
-1. Install dependencies with `npm install`
-2. Build with `npm run build`
+1. Install dependencies with `pnpm install` or `npm install`
+2. Build with `pnpm build` or `npm run build`
 3. Copy `manifest.json`, `main.js`, and optionally `styles.css` into your Obsidian vault's `.obsidian/plugins/daily-journaling-reminder/`
 
 ## Behavior
