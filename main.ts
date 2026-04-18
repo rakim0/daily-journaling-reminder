@@ -10,16 +10,18 @@ import {
 
 interface JournalReminderSettings {
 	journalFolder: string;
-	nightReminderHour: number;
+	reminderTime: string;
+	enableSystemNotifications: boolean;
 	lastStartupReminderDate: string;
-	lastNightReminderDate: string;
+	lastScheduledReminderDate: string;
 }
 
 const DEFAULT_SETTINGS: JournalReminderSettings = {
 	journalFolder: "Daily Journal",
-	nightReminderHour: 21,
+	reminderTime: "21:00",
+	enableSystemNotifications: true,
 	lastStartupReminderDate: "",
-	lastNightReminderDate: ""
+	lastScheduledReminderDate: ""
 };
 
 export default class JournalReminderPlugin extends Plugin {
@@ -28,6 +30,7 @@ export default class JournalReminderPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+		void this.ensureNotificationPermission();
 
 		this.addCommand({
 			id: "open-todays-journal",
@@ -58,7 +61,26 @@ export default class JournalReminderPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const loaded = await this.loadData();
+		const legacyHour =
+			loaded && typeof loaded.nightReminderHour === "number"
+				? String(loaded.nightReminderHour).padStart(2, "0")
+				: null;
+
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded, {
+			reminderTime:
+				typeof loaded?.reminderTime === "string" && this.isValidTimeString(loaded.reminderTime)
+					? loaded.reminderTime
+					: legacyHour
+						? `${legacyHour}:00`
+						: DEFAULT_SETTINGS.reminderTime,
+			lastScheduledReminderDate:
+				typeof loaded?.lastScheduledReminderDate === "string"
+					? loaded.lastScheduledReminderDate
+					: typeof loaded?.lastNightReminderDate === "string"
+						? loaded.lastNightReminderDate
+						: DEFAULT_SETTINGS.lastScheduledReminderDate
+		});
 	}
 
 	async saveSettings() {
@@ -78,7 +100,8 @@ export default class JournalReminderPlugin extends Plugin {
 
 		const now = new Date();
 		const nextReminder = new Date(now);
-		nextReminder.setHours(this.settings.nightReminderHour, 0, 0, 0);
+		const [hours, minutes] = this.parseReminderTime();
+		nextReminder.setHours(hours, minutes, 0, 0);
 
 		if (nextReminder.getTime() <= now.getTime()) {
 			nextReminder.setDate(nextReminder.getDate() + 1);
@@ -86,7 +109,7 @@ export default class JournalReminderPlugin extends Plugin {
 
 		const delay = nextReminder.getTime() - now.getTime();
 		this.nightReminderTimeout = window.setTimeout(() => {
-			void this.maybeShowNightReminder();
+			void this.maybeShowScheduledReminder();
 			this.scheduleNightReminder();
 		}, delay);
 	}
@@ -105,29 +128,24 @@ export default class JournalReminderPlugin extends Plugin {
 
 		this.settings.lastStartupReminderDate = today;
 		await this.saveData(this.settings);
-		new JournalReminderModal(this.app, this, "Time to journal", "Open today's journal note now?").open();
+		await this.showReminder("Time to journal", "Open today's journal note now?");
 	}
 
-	private async maybeShowNightReminder() {
-		const now = new Date();
-		if (now.getHours() < this.settings.nightReminderHour) {
-			return;
-		}
-
+	private async maybeShowScheduledReminder() {
 		const today = this.getTodayNoteName();
-		if (this.settings.lastNightReminderDate === today) {
+		if (this.settings.lastScheduledReminderDate === today) {
 			return;
 		}
 
 		if (await this.hasJournalForToday()) {
-			this.settings.lastNightReminderDate = today;
+			this.settings.lastScheduledReminderDate = today;
 			await this.saveData(this.settings);
 			return;
 		}
 
-		this.settings.lastNightReminderDate = today;
+		this.settings.lastScheduledReminderDate = today;
 		await this.saveData(this.settings);
-		new JournalReminderModal(this.app, this, "Night journal reminder", "Wrap up the day by writing in today's journal.").open();
+		await this.showReminder("Journal reminder", "Take a moment to write in today's journal.");
 	}
 
 	async openOrCreateTodayJournal() {
@@ -136,7 +154,7 @@ export default class JournalReminderPlugin extends Plugin {
 
 		if (!file) {
 			await this.ensureFolderExists(this.settings.journalFolder);
-			file = await this.app.vault.create(notePath, `# ${this.getTodayNoteName()}\n`);
+			file = await this.app.vault.create(notePath, "#daily-journal\n");
 			new Notice("Created today's journal note.");
 		}
 
@@ -179,6 +197,63 @@ export default class JournalReminderPlugin extends Plugin {
 				await this.app.vault.createFolder(currentPath);
 			}
 		}
+	}
+
+	isValidTimeString(value: string): boolean {
+		return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+	}
+
+	private parseReminderTime(): [number, number] {
+		if (!this.isValidTimeString(this.settings.reminderTime)) {
+			return [21, 0];
+		}
+
+		const [hours, minutes] = this.settings.reminderTime.split(":").map(Number);
+		return [hours, minutes];
+	}
+
+	private async showReminder(title: string, message: string) {
+		const notificationShown = await this.showSystemNotification(title, message);
+
+		if (!notificationShown) {
+			new JournalReminderModal(this.app, this, title, message).open();
+		}
+	}
+
+	private async showSystemNotification(title: string, message: string): Promise<boolean> {
+		if (!this.settings.enableSystemNotifications || typeof Notification === "undefined") {
+			return false;
+		}
+
+		const permission = await this.ensureNotificationPermission();
+		if (permission !== "granted") {
+			return false;
+		}
+
+		const notification = new Notification(title, {
+			body: message,
+			silent: false
+		});
+
+		notification.onclick = () => {
+			window.focus();
+			void this.openOrCreateTodayJournal();
+			notification.close();
+		};
+
+		return true;
+	}
+
+	async ensureNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+		if (typeof Notification === "undefined") {
+			return "unsupported";
+		}
+
+		if (Notification.permission === "default") {
+			return Notification.requestPermission();
+		}
+
+		return Notification.permission;
 	}
 }
 
@@ -247,18 +322,38 @@ class JournalReminderSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Night reminder hour")
-			.setDesc("24-hour local time for the evening reminder.")
-			.addSlider((slider) =>
-				slider
-					.setLimits(18, 23, 1)
-					.setValue(this.plugin.settings.nightReminderHour)
-					.setDynamicTooltip()
+			.setName("Reminder time")
+			.setDesc("24-hour local time for the daily reminder, for example 07:30 or 21:15.")
+			.addText((text) =>
+				text
+					.setPlaceholder("21:00")
+					.setValue(this.plugin.settings.reminderTime)
 					.onChange(async (value) => {
-						this.plugin.settings.nightReminderHour = value;
+						const trimmedValue = value.trim();
+						if (!this.plugin.isValidTimeString(trimmedValue)) {
+							return;
+						}
+
+						this.plugin.settings.reminderTime = trimmedValue;
+						this.plugin.settings.lastScheduledReminderDate = "";
 						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("System notifications")
+			.setDesc("Use desktop notifications when a journal reminder fires.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableSystemNotifications)
+					.onChange(async (value) => {
+						this.plugin.settings.enableSystemNotifications = value;
+						await this.plugin.saveSettings();
+
+						if (value) {
+							await this.plugin.ensureNotificationPermission();
+						}
 					})
 			);
 	}
 }
-

@@ -2,10 +2,10 @@
   "name": "daily-journaling-reminder",
   "version": "0.0.1",
   "description": "Obsidian plugin that reminds you to journal and opens today's note.",
-  "main": "main.js",
+  "main": "build/main.js",
   "packageManager": "pnpm@9.12.3",
   "scripts": {
-    "build": "tsc -noEmitOnError false",
+    "build": "tsc -noEmitOnError false && node scripts/prepare-build.mjs",
     "dev": "tsc -w"
   },
   "keywords": [

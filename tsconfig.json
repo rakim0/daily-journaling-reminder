@@ -1,18 +1,17 @@
 {
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
-    "lib": ["DOM", "ES2020"],
-    "strict": true,
-    "allowJs": false,
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "outDir": ".",
-    "rootDir": "."
-  },
-  "include": [
-    "main.ts"
-  ]
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "CommonJS",
+        "moduleResolution": "nodenext",
+        "lib": ["DOM", "ES2020"],
+        "strict": true,
+        "allowJs": false,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "rootDir": ".",
+        "outDir": "build"
+    },
+    "include": ["main.ts"],
+    "exclude": ["build"]
 }

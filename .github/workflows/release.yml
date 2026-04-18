@@ -63,9 +63,9 @@ jobs:
           VERSION: ${{ github.event.inputs.version }}
         run: |
           gh release create "v${VERSION}" \
-            main.js \
-            manifest.json \
-            styles.css \
-            versions.json \
+            build/main.js \
+            build/manifest.json \
+            build/styles.css \
+            build/versions.json \
             --generate-notes \
             --title "v${VERSION}"
