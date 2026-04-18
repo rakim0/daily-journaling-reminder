@@ -12,10 +12,6 @@
     "rootDir": ".",
     "outDir": "build"
   },
-  "include": [
-    "main.ts"
-  ],
-  "exclude": [
-    "build"
-  ]
+  "include": ["main.ts"],
+  "exclude": ["build"]
 }

@@ -6,7 +6,9 @@
   "packageManager": "pnpm@9.12.3",
   "scripts": {
     "build": "tsc -noEmitOnError false && node scripts/prepare-build.mjs",
-    "dev": "tsc -w"
+    "dev": "tsc -w",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [
     "obsidian",
@@ -17,6 +19,7 @@
   "license": "MIT",
   "devDependencies": {
     "obsidian": "^1.8.10",
+    "prettier": "^3.5.3",
     "typescript": "^5.6.3"
   }
 }
